@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ZipReader, Uint8ArrayReader } from "@zip.js/zip.js";
-import { planParts, writeParts } from "../src/download.js";
+import { ZipReader, Uint8ArrayReader, Uint8ArrayWriter } from "@zip.js/zip.js";
+import { inspectFiles, planParts, writeParts } from "../src/download.js";
+import { media } from "../shared/handlers.js";
 const file = (size, name = "photo.jpg") => ({
   size,
   name,
@@ -72,6 +73,62 @@ test("streams readable ZIPs and aborts incomplete downloads", async () => {
     /incomplete/,
   );
   assert.equal(broken.outputs[0].aborted, true);
+});
+
+test("downloads photos and videos together with their original bytes", async () => {
+  const original = globalThis.fetch;
+  const payloads = {
+    photo: new Uint8Array([1, 2, 3]),
+    video: new Uint8Array([4, 5, 6, 7]),
+  };
+  try {
+    globalThis.fetch = async (url, options = {}) => {
+      if (String(url).startsWith("/api/media?"))
+        return media(new Request(`https://site${url}`, options));
+      const path = new URL(url).pathname;
+      const kind = path.endsWith("=m22") ? "video" : "photo";
+      assert.equal(path, `/pw/${kind}=${kind === "video" ? "m22" : "d"}`);
+      return new Response(options.method === "HEAD" ? null : payloads[kind], {
+        headers: {
+          "content-type": kind === "video" ? "video/mp4" : "image/jpeg",
+          "content-length": String(payloads[kind].length),
+        },
+      });
+    };
+    const items = ["photo", "video"].map((kind) => ({
+      kind,
+      url: `https://lh3.googleusercontent.com/pw/${kind}`,
+    }));
+    const signal = new AbortController().signal;
+    const files = await inspectFiles(items, signal, () => {});
+    assert.deepEqual(
+      files.map((file) => file.name),
+      ["photo-000001.jpg", "video-000002.mp4"],
+    );
+    const dir = directory();
+    await writeParts(planParts(files), dir, signal, () => {});
+    const reader = new ZipReader(
+      new Uint8ArrayReader(
+        new Uint8Array(Buffer.concat(dir.outputs[0].chunks)),
+      ),
+    );
+    const entries = await reader.getEntries();
+    assert.deepEqual(
+      entries.map((entry) => entry.filename),
+      files.map((f) => f.name),
+    );
+    assert.deepEqual(
+      await entries[0].getData(new Uint8ArrayWriter()),
+      payloads.photo,
+    );
+    assert.deepEqual(
+      await entries[1].getData(new Uint8ArrayWriter()),
+      payloads.video,
+    );
+    await reader.close();
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 test("cancel aborts the active archive", async () => {
   const controller = new AbortController();

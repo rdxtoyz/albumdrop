@@ -73,7 +73,7 @@ export async function inspectFiles(items, signal, progress) {
       files[i] = {
         endpoint,
         size: Number(response.headers.get("content-length")),
-        name: `photo-${String(i + 1).padStart(6, "0")}.${ext}`,
+        name: `${items[i].kind === "video" ? "video" : "photo"}-${String(i + 1).padStart(6, "0")}.${ext}`,
       };
       progress(`Checking files… ${++completed} of ${items.length}`);
     }

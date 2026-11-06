@@ -90,7 +90,7 @@ export async function getAlbum(value) {
   const items = parseItems(data[1]);
   if (!items.length)
     throw new Error(
-      "No downloadable photos were found. Check that the album is public and contains photos.",
+      "No downloadable photos or videos were found. Check that the album is public and contains media.",
     );
   const title =
     html.match(/<meta property="og:title" content="([^"]*)"/i)?.[1] ||
@@ -124,7 +124,8 @@ function parseItems(entries) {
       url,
       width: item[1][1],
       height: item[1][2],
-      kind: item[9]?.["76647426"] ? "video" : "photo",
+      // Some entries include an extra numeric field before the media metadata.
+      kind: item[9]?.["76647426"] || item[10]?.["76647426"] ? "video" : "photo",
     };
   });
 }
